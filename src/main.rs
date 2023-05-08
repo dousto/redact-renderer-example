@@ -23,11 +23,6 @@ fn main() {
     .unwrap();
 }
 
-
-// ------------------------------------------
-// This stuff will be moved to a separate lib
-// ------------------------------------------
-
 pub struct TestRenderer;
 
 #[derive(Debug)]
