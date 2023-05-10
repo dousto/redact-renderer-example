@@ -1,4 +1,4 @@
-use std::fs;
+use std::{fs, vec};
 
 use redact_composer::converters::MidiConverter;
 use rand::Rng;
@@ -14,7 +14,7 @@ fn main() {
     let beat = 480;
 
     let render_tree = c.compose(CompositionSegment {
-        begin: 0, end: beat * 4 * 8,
+        begin: 0, end: beat * 4 * 8 * 2,
         segment_type: SegmentType::Abstract(RenderType::Composition)}
     );
 
@@ -31,6 +31,9 @@ enum RenderType {
     RandomKey,
     Key(Key),
     ChordProgression,
+    ProgressionChords(Vec<Chord>),
+    ProgressionRhythm(Vec<u32>),
+    ChordMarkers,
     Chord(Chord),
     Part,
     PlayChord
@@ -50,16 +53,12 @@ impl Renderer<RenderType> for TestRenderer {
             RenderType::Composition => {
                 RenderResult::Success(Some(vec![
                     CompositionSegment {
-                        segment_type: SegmentType::Abstract(RenderType::ChordProgression),
-                        begin: begin, end: (end - begin) / 2
+                        segment_type: SegmentType::Abstract(RenderType::Part),
+                        begin, end: begin + (end - begin) / 2
                     },
                     CompositionSegment {
-                        segment_type: SegmentType::Abstract(RenderType::ChordProgression),
-                        begin: (end - begin) / 2, end: end
-                    },
-                    CompositionSegment {
-                        segment_type: SegmentType::Part(RenderType::Part),
-                        begin, end
+                        segment_type: SegmentType::Abstract(RenderType::Part),
+                        begin: begin + (end - begin) / 2, end
                     },
                     CompositionSegment {
                         segment_type: SegmentType::Abstract(RenderType::RandomKey),
@@ -78,24 +77,54 @@ impl Renderer<RenderType> for TestRenderer {
                 chord_options.retain(|c| c != &chord3);
                 let chord4 = chord_options[rng.gen_range(0..chord_options.len())];
 
+                let rhythm = Vec::from([beat * 4; 4]);
+
                 RenderResult::Success(Some(vec![
                     CompositionSegment {
-                        segment_type: SegmentType::Abstract(RenderType::Chord(chord1)),
-                        begin: begin, end: begin + (end - begin) / 4
+                        segment_type: SegmentType::Abstract(RenderType::ProgressionChords(vec![
+                            chord1, chord2, chord3, chord4
+                        ])),
+                        begin: begin, end: end
                     },
                     CompositionSegment {
-                        segment_type: SegmentType::Abstract(RenderType::Chord(chord2)),
-                        begin: begin + (end - begin) / 4, end: begin + (end - begin) / 4 * 2
+                        segment_type: SegmentType::Abstract(RenderType::ProgressionRhythm(rhythm)),
+                        begin: begin, end: end
                     },
                     CompositionSegment {
-                        segment_type: SegmentType::Abstract(RenderType::Chord(chord3)),
-                        begin: begin + (end - begin) / 4 * 2, end: begin + (end - begin) / 4 * 3
-                    },
-                    CompositionSegment {
-                        segment_type: SegmentType::Abstract(RenderType::Chord(chord4)),
-                        begin: begin + (end - begin) / 4 * 3, end: begin + (end - begin) / 4 * 4
+                        segment_type: SegmentType::Abstract(RenderType::ChordMarkers),
+                        begin: begin, end: end
                     },
                 ]))
+            },
+            RenderType::ChordMarkers => {
+                let opt_chords = context.get(|n| {
+                    if let RenderType::ProgressionChords(chords) = n { Some(chords.clone()) } else { None }
+                });
+                let opt_rhythm = context.get(|n| {
+                    if let RenderType::ProgressionRhythm(rhythm) = n { Some(rhythm.clone()) } else { None }
+                });
+
+                if opt_chords.is_none() || opt_rhythm.is_none() { return RenderResult::MissingContext }
+
+                let chords = opt_chords.unwrap();
+                let rhythm = opt_rhythm.unwrap();
+                
+                RenderResult::Success(Some(
+                    chords.into_iter().cycle().zip(
+                        rhythm.into_iter().cycle()
+                            .scan((begin, begin), |(chord_begin, chord_end), rhythm_length| {
+                                (*chord_begin, *chord_end) = (*chord_end, *chord_end + rhythm_length);
+                                Some((*chord_begin, *chord_end))
+                            }
+                        )
+                        .take_while(|(_, chord_end)| *chord_end <= end)
+                    )
+                    .map(|(chord, (b, e))| CompositionSegment {
+                        segment_type: SegmentType::Abstract(RenderType::Chord(chord)),
+                        begin: b, end: e
+                    })
+                    .collect()
+                ))
             },
             RenderType::RandomKey => {
                 let key = Key {
@@ -123,15 +152,21 @@ impl Renderer<RenderType> for TestRenderer {
                                 begin, end,
                             }]
                         )
+                        .chain([
+                            CompositionSegment {
+                                segment_type: SegmentType::Abstract(RenderType::ChordProgression),
+                                begin, end
+                            }
+                        ])
                         .collect()
                 ))
             },
             RenderType::PlayChord => {
                 let opt_key = context.get(|n| {
-                    match n { RenderType::Key(key) => Some(*key), _ => None }
+                    if let RenderType::Key(key) = n { Some(*key) } else { None }
                 });
                 let opt_chord = context.get(|n| {
-                    match n { RenderType::Chord(chord) => Some(*chord), _ => None }
+                    if let RenderType::Chord(chord) = n { Some(*chord) } else { None }
                 });
 
                 if opt_key.is_none() || opt_chord.is_none() { return RenderResult::MissingContext }
