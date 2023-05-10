@@ -56,12 +56,12 @@ impl Renderer<RenderType> for TestRenderer {
         match abstract_type {
             RenderType::Composition => RenderResult::Success(Some(vec![
                 CompositionSegment {
-                    segment_type: SegmentType::Abstract(RenderType::Part),
+                    segment_type: SegmentType::Part(RenderType::Part),
                     begin,
                     end: begin + (end - begin) / 2,
                 },
                 CompositionSegment {
-                    segment_type: SegmentType::Abstract(RenderType::Part),
+                    segment_type: SegmentType::Part(RenderType::Part),
                     begin: begin + (end - begin) / 2,
                     end,
                 },
@@ -171,7 +171,9 @@ impl Renderer<RenderType> for TestRenderer {
                         end: begin + (i + 1) * 4 * beat,
                     })
                     .chain([CompositionSegment {
-                        segment_type: SegmentType::Instrument { program: 0 },
+                        segment_type: SegmentType::Instrument {
+                            program: rng.gen_range(0..128),
+                        },
                         begin,
                         end,
                     }])
