@@ -107,14 +107,14 @@ impl Renderer<RenderType> for TestRenderer {
             RenderType::ChordMarkers => {
                 let opt_chords = context.get(|n| {
                     if let RenderType::ProgressionChords(chords) = n {
-                        Some(chords.clone())
+                        Some(chords)
                     } else {
                         None
                     }
                 });
                 let opt_rhythm = context.get(|n| {
                     if let RenderType::ProgressionRhythm(rhythm) = n {
-                        Some(rhythm.clone())
+                        Some(rhythm)
                     } else {
                         None
                     }
@@ -143,7 +143,7 @@ impl Renderer<RenderType> for TestRenderer {
                                 .take_while(|(_, chord_end)| *chord_end <= end),
                         )
                         .map(|(chord, (b, e))| CompositionSegment {
-                            segment_type: SegmentType::Abstract(RenderType::Chord(chord)),
+                            segment_type: SegmentType::Abstract(RenderType::Chord(*chord)),
                             begin: b,
                             end: e,
                         })
@@ -187,14 +187,14 @@ impl Renderer<RenderType> for TestRenderer {
             RenderType::PlayChord => {
                 let opt_key = context.get(|n| {
                     if let RenderType::Key(key) = n {
-                        Some(*key)
+                        Some(key)
                     } else {
                         None
                     }
                 });
                 let opt_chord = context.get(|n| {
                     if let RenderType::Chord(chord) = n {
-                        Some(*chord)
+                        Some(chord)
                     } else {
                         None
                     }
