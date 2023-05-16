@@ -1,5 +1,6 @@
 use std::{fs, vec};
 
+use rand::seq::SliceRandom;
 use rand::Rng;
 use redact_composer::converters::MidiConverter;
 
@@ -7,6 +8,7 @@ use redact_composer::composer::{
     Composer, CompositionContext, CompositionSegment, RenderResult, Renderer, SegmentType,
 };
 
+use redact_composer::musical::midi::{Instrument, Instruments};
 use redact_composer::musical::{Chord, Key, Notes, Scale};
 
 fn main() {
@@ -172,7 +174,12 @@ impl Renderer<RenderType> for TestRenderer {
                     })
                     .chain([CompositionSegment {
                         segment_type: SegmentType::Instrument {
-                            program: rng.gen_range(0..128),
+                            program: {
+                                let instruments: Vec<Instrument> = Instruments::melodic().into();
+                                let selected = *instruments.choose(&mut rng).unwrap();
+
+                                selected.into()
+                            },
                         },
                         begin,
                         end,
