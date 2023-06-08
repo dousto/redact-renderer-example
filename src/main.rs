@@ -356,10 +356,12 @@ impl SegmentType for MelodyNote {
                 SearchScope::anywhere(),
             ),
         ) {
-            let opt_prev_note = context.get::<PlayNote>(
-                TimeRelation::during((begin - composition.beat * 2)..end),
-                SearchScope::within_ancestor::<MelodyPart>(),
-            );
+            let opt_prev_note = context
+                .get_all_segments::<PlayNote>(
+                    TimeRelation::ending_within((begin - composition.beat)..begin),
+                    SearchScope::within_ancestor::<MelodyPart>(),
+                )
+                .and_then(|notes| notes.last().unwrap().segment_type_as::<PlayNote>());
 
             // Define a range for melody notes to fall within
             let range_begin = key.tonic + 12 * 4 + 6;
@@ -369,7 +371,7 @@ impl SegmentType for MelodyNote {
 
             // Note possibilities will be "bumped" up or down in probability based on various factors
             // This bump factor affects how "polarizing" the various factors are
-            let bump_factor: f32 = 10.0;
+            let bump_factor: f32 = 1.5;
 
             let weights: Vec<f32> = note_options
                 .iter()
@@ -377,25 +379,17 @@ impl SegmentType for MelodyNote {
                     let n = *n as i32;
                     let mut bumps = 0;
 
-                    // Check if there is another note playing the same pitch class as this note option
-                    let opt_other_note = context
-                        .get_all_segments_where::<PlayNote>(
-                            |play_note| {
-                                Notes::base_note(&(n as u8))
-                                    == Notes::base_note(&(play_note.note as u8))
-                            },
-                            TimeRelation::overlapping(begin..begin),
-                            SearchScope::within_ancestor::<Harmony>(),
-                        )
-                        .and_then(|notes| {
-                            let shared_start_notes: Vec<&CompositionSegment> = notes
-                                .into_iter()
-                                .filter(|note| note.begin == begin)
-                                .collect();
-                            shared_start_notes
-                                .first()
-                                .map(|s| s.segment_type_as::<PlayNote>())
-                        });
+                    // Check if there is another note playing at nearly the same time with the same pitch class as this note option
+                    let opt_other_note = context.get_where::<PlayNote>(
+                        |play_note| {
+                            Notes::base_note(&(n as u8))
+                                == Notes::base_note(&(play_note.note as u8))
+                        },
+                        TimeRelation::beginning_within(
+                            (begin - composition.beat / 2)..=(begin + composition.beat / 2),
+                        ),
+                        SearchScope::within_ancestor::<Harmony>(),
+                    );
 
                     // Note options within the current chord are bumped up, unless another part is already playing the note
                     // They are bumped multiple times based on how long the note is to be played
@@ -415,9 +409,9 @@ impl SegmentType for MelodyNote {
                     {
                         // Determine a target note using a cosine wave whose period relates (by some factor) to the melody length, and magnitude relates to the target note range
                         // Then bump down probabilities for note options further from this target
-                        let s = rng.gen_range(1..=8);
+                        let s = rng.gen_range(1..=3);
                         let phase = (PI
-                            + (s as f32)
+                            + (2_i32.pow(s) as f32)
                                 * PI
                                 * ((begin - melody_segment.begin) as f32
                                     / (melody_segment.end - melody_segment.begin) as f32))
@@ -427,18 +421,18 @@ impl SegmentType for MelodyNote {
                         let target_note = (range_begin as i32)
                             + (((range_end - range_begin) as f32) * target) as i32;
                         let target_distance = (target_note - n as i32).abs();
-                        bumps -= target_distance
+                        bumps -= (target_distance - 4).pow(2)
                     }
 
                     // Bump up small note jumps, and bump down large note leaps
                     if let Some(prev_note) = &opt_prev_note {
                         let prev_note = prev_note.note as i32;
                         let jump_length = (prev_note - n).abs();
-                        bumps -= jump_length - 4;
-
                         // Give more down bumps for the same note being repeated
                         if jump_length == 0 {
-                            bumps -= 30
+                            bumps -= 4
+                        } else {
+                            bumps -= (jump_length - 4).pow(2);
                         }
                     }
 
