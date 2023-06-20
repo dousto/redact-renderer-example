@@ -22,7 +22,7 @@ fn main() {
     let render_tree = Composer::compose(CompositionSegment::new(
         Composition { beat },
         0,
-        beat * 4 * 8 * 2,
+        beat * 4 * 8 * 8,
     ));
 
     for node in &render_tree {
@@ -45,12 +45,35 @@ struct Composition {
 }
 impl SegmentType for Composition {
     fn render(&self, begin: i32, end: i32, _context: CompositionContext) -> RenderResult {
+        let section_length = self.beat * 4 * 8;
+        let sections = (end - begin) / section_length;
+        let unique_sections = 2;
+
+        RenderResult::Success(Some(
+            vec![CompositionSegment::new(RandomKey, begin, end)]
+                .into_iter()
+                .chain((0..sections).map(|section| {
+                    CompositionSegment::named(
+                        section % unique_sections,
+                        Section,
+                        section * section_length,
+                        (section + 1) * section_length,
+                    )
+                }))
+                .collect(),
+        ))
+    }
+}
+
+#[derive(Debug)]
+struct Section;
+
+impl SegmentType for Section {
+    fn render(&self, begin: i32, end: i32, _: CompositionContext) -> RenderResult {
         RenderResult::Success(Some(vec![
-            CompositionSegment::new(RandomKey, begin, end),
-            CompositionSegment::new(Part::instrument(ChordPart), begin, end),
             CompositionSegment::new(Harmony, begin, end),
-            CompositionSegment::new(RandomChordProgression, begin, begin + (end - begin) / 2),
-            CompositionSegment::new(RandomChordProgression, begin + (end - begin) / 2, end),
+            CompositionSegment::new(Part::instrument(ChordPart), begin, end),
+            CompositionSegment::new(RandomChordProgression, begin, end),
         ]))
     }
 }
@@ -61,14 +84,14 @@ impl SegmentType for RandomKey {
     fn render(&self, begin: i32, end: i32, context: CompositionContext) -> RenderResult {
         let mut rng = context.rng();
 
-        return RenderResult::Success(Some(vec![CompositionSegment::new(
+        RenderResult::Success(Some(vec![CompositionSegment::new(
             Key {
                 tonic: rng.gen_range(0..12),
                 scale: Scale::values()[rng.gen_range(0..Scale::values().len())],
             },
             begin,
             end,
-        )]));
+        )]))
     }
 }
 
@@ -94,7 +117,7 @@ impl SegmentType for RandomChordProgression {
             // Starting from Chord::I or Chord::V, add additional chords based on the possible transitions
             // Make sure the last chord can transition back to the starting chord, enabling nice repetition
             let start_chord = [Chord::I, Chord::V][rng.gen_range(0..=1)];
-            let mut last_chord = start_chord.clone();
+            let mut last_chord = start_chord;
             let mut chords = vec![start_chord];
             while chords.len() <= 2 || !chord_map[chords.last().unwrap()].contains(&start_chord) {
                 let possible_next_chords: Vec<Chord> = chord_map[chords.last().unwrap()]
@@ -108,7 +131,7 @@ impl SegmentType for RandomChordProgression {
                     .collect();
                 let next_chord = possible_next_chords[rng.gen_range(0..possible_next_chords.len())];
                 chords.append(&mut vec![next_chord]);
-                last_chord = next_chord.clone()
+                last_chord = next_chord
             }
 
             let beat = composition.beat;
@@ -137,7 +160,7 @@ impl SegmentType for ChordProgression {
         // Add chord markers throughout begin..end for ease of context lookup
         RenderResult::Success(Some(
             chords
-                .into_iter()
+                .iter()
                 .cycle()
                 .zip(rhythm.iter_over(begin..end).filter(|div| !div.is_rest))
                 .map(|(chord, div)| {
@@ -198,7 +221,7 @@ impl SegmentType for PlayChord {
         ) {
             // Simple implementation which chooses 4 of the chord notes within a given range and play them simultaneously
             let note_options =
-                Notes::from(key.chord(&chord)).in_range((key.tonic + 30)..=(key.tonic + 50));
+                Notes::from(key.chord(chord)).in_range((key.tonic + 30)..=(key.tonic + 50));
 
             RenderResult::Success(Some(
                 note_options
@@ -246,6 +269,9 @@ impl SegmentType for MelodyPart {
             context.rng(),
             context.get::<Composition>(TimeRelation::during(begin..end), SearchScope::anywhere()),
         ) {
+            let instruments: Vec<Instrument> = Instruments::melodic().into();
+            let instrument = *instruments.choose(&mut context.rng()).unwrap();
+
             let beat = composition.beat;
 
             let rhythm_precision = beat / 2;
@@ -255,7 +281,7 @@ impl SegmentType for MelodyPart {
                 |n| {
                     (((n - rhythm_precision) as f32).clamp(0.0, max_rhythm_division as f32)
                         / max_rhythm_division as f32)
-                        .powf(0.1)
+                        .powf(0.5)
                 },
                 |_| 0.2,
                 &mut rng,
@@ -268,7 +294,7 @@ impl SegmentType for MelodyPart {
                     .map(|div| {
                         CompositionSegment::new(MelodyNote, div.timing.start, div.timing.end)
                     })
-                    .chain([CompositionSegment::new(RandomInstrument, begin, end)])
+                    .chain([CompositionSegment::new(instrument, begin, end)])
                     .collect(),
             ))
         } else {
@@ -288,7 +314,7 @@ impl SegmentType for MelodyNote {
             context.get::<Chord>(TimeRelation::during(end..end), SearchScope::anywhere()),
             context.get_segment::<MelodyPart>(
                 TimeRelation::during(begin..end),
-                SearchScope::anywhere(),
+                SearchScope::within_ancestor::<Harmony>(),
             ),
         ) {
             let opt_prev_note = context
@@ -317,8 +343,7 @@ impl SegmentType for MelodyNote {
                     // Check if there is another note playing at nearly the same time with the same pitch class as this note option
                     let opt_other_note = context.get_where::<PlayNote>(
                         |play_note| {
-                            Notes::base_note(&(n as u8))
-                                == Notes::base_note(&(play_note.note as u8))
+                            Notes::base_note(&(n as u8)) == Notes::base_note(&play_note.note)
                         },
                         TimeRelation::beginning_within(
                             (begin - composition.beat / 2)..=(begin + composition.beat / 2),
@@ -330,8 +355,7 @@ impl SegmentType for MelodyNote {
                     // They are bumped multiple times based on how long the note is to be played
                     let its_a_chord_note = key.chord(chord).contains(&Notes::base_note(&(n as u8)));
                     if its_a_chord_note {
-                        let note_impact =
-                            (((end - begin) / (composition.beat / 2)) as i32 - 1).pow(2);
+                        let note_impact = ((end - begin) / (composition.beat / 2) - 1).pow(2);
                         if opt_other_note.is_none() {
                             bumps += note_impact;
                         } else {
@@ -353,7 +377,7 @@ impl SegmentType for MelodyNote {
 
                         let target_note = (range_begin as i32)
                             + (((range_end - range_begin) as f32) * target) as i32;
-                        let target_distance = (target_note - n as i32).abs();
+                        let target_distance = (target_note - n).abs();
                         bumps -= (target_distance - 4).pow(2)
                     }
 
@@ -381,7 +405,7 @@ impl SegmentType for MelodyNote {
                                     Notes::base_note(&(n as u8)).abs_diff(*chord_note)
                                 })
                                 .max()
-                                .and_then(|d| Some((max_dist - (d as i32)).max(0)))
+                                .map(|d| (max_dist - (d as i32)).max(0))
                                 .unwrap_or(0);
 
                             bumps += (dist + eights_notes_away) * 2
@@ -428,6 +452,7 @@ impl SegmentType for DrumPart {
             context.rng(),
             context.get::<Composition>(TimeRelation::during(begin..end), SearchScope::anywhere()),
         ) {
+            let drum_kit = Instrument::from(rng.gen_range(0..=30));
             let beat = composition.beat;
 
             let rhythm_precision = beat / 4;
@@ -458,8 +483,6 @@ impl SegmentType for DrumPart {
                     .unwrap()
                 })
                 .collect();
-
-            let drum_kit = Instrument::from(rng.gen_range(0..=30));
 
             RenderResult::Success(Some(
                 rhythm
