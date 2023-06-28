@@ -15,6 +15,7 @@ use redact_composer::musical::{
     rhythm::{Rhythm, STANDARD_BEAT_LENGTH},
     Chord, Key, Notes, Scale,
 };
+use serde::{Deserialize, Serialize};
 
 fn main() {
     let beat = STANDARD_BEAT_LENGTH;
@@ -25,24 +26,28 @@ fn main() {
         beat * 4 * 8 * 8,
     ));
 
-    for node in &render_tree {
-        println!("{:?}", node);
-    }
-
     println!(
         "Use `Composer::compose_with_seed` using seed {:?} to reproduce this output.",
         render_tree.root().unwrap().value.seed
     );
 
     fs::create_dir_all("./test-midi")
-        .and_then(|_| MidiConverter::convert(&render_tree).save("./test-midi/seeifitworks.mid"))
+        .and_then(|_| MidiConverter::convert(&render_tree).save("./test-midi/output.mid"))
+        .and_then(|_| {
+            fs::write(
+                "./test-midi/output.json",
+                serde_json::to_string_pretty(&render_tree).unwrap(),
+            )
+        })
         .unwrap();
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 struct Composition {
     beat: i32,
 }
+
+#[typetag::serde]
 impl SegmentType for Composition {
     fn render(&self, begin: i32, end: i32, _context: CompositionContext) -> RenderResult {
         let section_length = self.beat * 4 * 8;
@@ -65,9 +70,10 @@ impl SegmentType for Composition {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 struct Section;
 
+#[typetag::serde]
 impl SegmentType for Section {
     fn render(&self, begin: i32, end: i32, _: CompositionContext) -> RenderResult {
         RenderResult::Success(Some(vec![
@@ -78,8 +84,10 @@ impl SegmentType for Section {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 struct RandomKey;
+
+#[typetag::serde]
 impl SegmentType for RandomKey {
     fn render(&self, begin: i32, end: i32, context: CompositionContext) -> RenderResult {
         let mut rng = context.rng();
@@ -95,8 +103,10 @@ impl SegmentType for RandomKey {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 struct RandomChordProgression;
+
+#[typetag::serde]
 impl SegmentType for RandomChordProgression {
     fn render(&self, begin: i32, end: i32, context: CompositionContext) -> RenderResult {
         if let (mut rng, Some(composition)) = (
@@ -148,11 +158,13 @@ impl SegmentType for RandomChordProgression {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 struct ChordProgression {
     chords: Vec<Chord>,
     rhythm: Rhythm,
 }
+
+#[typetag::serde]
 impl SegmentType for ChordProgression {
     fn render(&self, begin: i32, end: i32, _context: CompositionContext) -> RenderResult {
         let (chords, rhythm) = (&self.chords, &self.rhythm);
@@ -171,8 +183,10 @@ impl SegmentType for ChordProgression {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 struct RandomInstrument;
+
+#[typetag::serde]
 impl SegmentType for RandomInstrument {
     fn render(&self, begin: i32, end: i32, context: CompositionContext) -> RenderResult {
         let instruments: Vec<Instrument> = Instruments::melodic().into();
@@ -185,8 +199,10 @@ impl SegmentType for RandomInstrument {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 struct ChordPart;
+
+#[typetag::serde]
 impl SegmentType for ChordPart {
     fn render(&self, begin: i32, end: i32, context: CompositionContext) -> RenderResult {
         if let Some(chord_markers) = context.get_all_segments::<Chord>(
@@ -210,8 +226,10 @@ impl SegmentType for ChordPart {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 struct PlayChord;
+
+#[typetag::serde]
 impl SegmentType for PlayChord {
     fn render(&self, begin: i32, end: i32, context: CompositionContext) -> RenderResult {
         if let (mut rng, Some(key), Some(chord)) = (
@@ -247,8 +265,10 @@ impl SegmentType for PlayChord {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 struct Harmony;
+
+#[typetag::serde]
 impl SegmentType for Harmony {
     fn render(&self, begin: i32, end: i32, _context: CompositionContext) -> RenderResult {
         RenderResult::Success(Some(vec![
@@ -261,8 +281,10 @@ impl SegmentType for Harmony {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 struct MelodyPart;
+
+#[typetag::serde]
 impl SegmentType for MelodyPart {
     fn render(&self, begin: i32, end: i32, context: CompositionContext) -> RenderResult {
         if let (mut rng, Some(composition)) = (
@@ -303,8 +325,10 @@ impl SegmentType for MelodyPart {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 struct MelodyNote;
+
+#[typetag::serde]
 impl SegmentType for MelodyNote {
     fn render(&self, begin: i32, end: i32, context: CompositionContext) -> RenderResult {
         if let (mut rng, Some(composition), Some(key), Some(chord), Some(melody_segment)) = (
@@ -444,8 +468,10 @@ impl SegmentType for MelodyNote {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 struct DrumPart;
+
+#[typetag::serde]
 impl SegmentType for DrumPart {
     fn render(&self, begin: i32, end: i32, context: CompositionContext) -> RenderResult {
         if let (mut rng, Some(composition)) = (
@@ -472,7 +498,6 @@ impl SegmentType for DrumPart {
                 .0
                 .iter()
                 .filter(|div| !div.is_rest)
-                .enumerate()
                 .map(|_| {
                     *vec![
                         DrumHit::AcousticBassDrum,

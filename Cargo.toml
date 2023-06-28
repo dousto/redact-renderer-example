@@ -8,3 +8,6 @@ edition = "2021"
 [dependencies]
 rand = "0.8.5"
 redact-composer = { path = "../redact-composer" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0.99"
+typetag = "0.2.8"
