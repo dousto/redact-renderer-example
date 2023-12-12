@@ -12,7 +12,7 @@ use redact_composer::composer::context::CompositionContext;
 use redact_composer::composer::context::TimingRelation::*;
 use redact_composer::composer::render::{AdhocRenderer, RenderEngine, Renderer, RendererGroup};
 use redact_composer::composer::{
-    Composer, Composition, CompositionSegment, Part, PlayNote, SegmentType,
+    Composer, Composition, CompositionElement, CompositionSegment, Part, PlayNote,
 };
 use redact_composer::converters::MidiConverter;
 use redact_composer::musical::midi::{DrumHit, Instrument, Instruments};
@@ -30,9 +30,10 @@ fn main() {
         engine: Renderers::standard(),
     };
 
-    let render_tree = composer.compose(
-        CompositionSegment::new(Composition, 0..(STANDARD_BEAT_LENGTH * 6 * 8 * 8)),
-    );
+    let render_tree = composer.compose(CompositionSegment::new(
+        Composition,
+        0..(STANDARD_BEAT_LENGTH * 6 * 8 * 8),
+    ));
 
     println!(
         "Use `Composer::compose_with_seed` using seed {:?} to reproduce this output.",
@@ -81,13 +82,13 @@ impl Renderers {
                 },
             )
             + AdhocRenderer::from(
-            |_segment: &_, time_range: &Range<i32>, _context: &CompositionContext| {
-                Ok(vec![CompositionSegment::new(
-                    Tempo::from_bpm(_context.rng().gen_range(100..=140)),
-                    time_range,
-                )])
-            },
-        )
+                |_segment: &_, time_range: &Range<i32>, _context: &CompositionContext| {
+                    Ok(vec![CompositionSegment::new(
+                        Tempo::from_bpm(_context.rng().gen_range(100..=140)),
+                        time_range,
+                    )])
+                },
+            )
         // Uncomment to include metronome ticks
         // + Metronome::new()
     }
@@ -131,7 +132,7 @@ impl Renderers {
             )
     }
 
-    fn key_generator<S: SegmentType>() -> impl Renderer<Item = S> {
+    fn key_generator<S: CompositionElement>() -> impl Renderer<Item = S> {
         AdhocRenderer::from(
             |_segment: &S, time_range: &Range<i32>, _context: &CompositionContext| {
                 Ok(vec![CompositionSegment::new(RandomKey, time_range)])
@@ -139,7 +140,7 @@ impl Renderers {
         )
     }
 
-    fn time_signature_generator<S: SegmentType>() -> impl Renderer<Item = S> {
+    fn time_signature_generator<S: CompositionElement>() -> impl Renderer<Item = S> {
         AdhocRenderer::from(
             |_segment: &S, time_range: &Range<i32>, _context: &CompositionContext| {
                 Ok(vec![CompositionSegment::new(
@@ -150,7 +151,7 @@ impl Renderers {
         )
     }
 
-    fn section_generator<S: SegmentType>() -> impl Renderer<Item = S> {
+    fn section_generator<S: CompositionElement>() -> impl Renderer<Item = S> {
         AdhocRenderer::from(
             |_segment: &S, time_range: &Range<i32>, context: &CompositionContext| {
                 let mut rng = context.rng();
@@ -185,7 +186,7 @@ impl Renderers {
         )
     }
 
-    fn instrumentation_generator<S: SegmentType>() -> impl Renderer<Item = S> {
+    fn instrumentation_generator<S: CompositionElement>() -> impl Renderer<Item = S> {
         AdhocRenderer::from(
             |_segment: &S, time_range: &Range<i32>, context: &CompositionContext| {
                 let mut rng = context.rng();
@@ -207,19 +208,19 @@ impl Renderers {
 struct Sections;
 
 #[typetag::serde]
-impl SegmentType for Sections {}
+impl CompositionElement for Sections {}
 
 #[derive(Debug, Serialize, Deserialize)]
 struct PhraseDivider;
 
 #[typetag::serde]
-impl SegmentType for PhraseDivider {}
+impl CompositionElement for PhraseDivider {}
 
 #[derive(Debug, Serialize, Deserialize)]
 struct ChordMarkers;
 
 #[typetag::serde]
-impl SegmentType for ChordMarkers {}
+impl CompositionElement for ChordMarkers {}
 
 impl ChordMarkers {
     pub fn renderer() -> impl Renderer<Item = Self> {
@@ -252,19 +253,19 @@ struct Instrumentation {
 }
 
 #[typetag::serde]
-impl SegmentType for Instrumentation {}
+impl CompositionElement for Instrumentation {}
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Section;
 
 #[typetag::serde]
-impl SegmentType for Section {}
+impl CompositionElement for Section {}
 
 #[derive(Debug, Serialize, Deserialize)]
 struct RandomKey;
 
 #[typetag::serde]
-impl SegmentType for RandomKey {}
+impl CompositionElement for RandomKey {}
 
 impl RandomKey {
     pub fn renderer() -> impl Renderer<Item = Self> {
@@ -288,7 +289,7 @@ impl RandomKey {
 struct RandomTimeSignature;
 
 #[typetag::serde]
-impl SegmentType for RandomTimeSignature {}
+impl CompositionElement for RandomTimeSignature {}
 
 impl RandomTimeSignature {
     pub fn renderer() -> impl Renderer<Item = Self> {
@@ -312,7 +313,7 @@ impl RandomTimeSignature {
 struct RandomChordProgression;
 
 #[typetag::serde]
-impl SegmentType for RandomChordProgression {}
+impl CompositionElement for RandomChordProgression {}
 
 impl RandomChordProgression {
     pub fn renderer() -> impl Renderer<Item = Self> {
@@ -362,12 +363,8 @@ impl RandomChordProgression {
                     last_chord = next_chord
                 }
 
-                let rhythm = Rhythm::balanced_timing(
-                    ts.bar() * 4,
-                    chords.len() as i32,
-                    ts,
-                    &mut rng,
-                );
+                let rhythm =
+                    Rhythm::balanced_timing(ts.bar() * 4, chords.len() as i32, ts, &mut rng);
 
                 Ok(vec![CompositionSegment::new(
                     ChordProgression { chords, rhythm },
@@ -385,7 +382,7 @@ struct ChordProgression {
 }
 
 #[typetag::serde]
-impl SegmentType for ChordProgression {}
+impl CompositionElement for ChordProgression {}
 
 #[derive(Debug, Serialize, Deserialize)]
 struct ChordPart {
@@ -393,7 +390,7 @@ struct ChordPart {
 }
 
 #[typetag::serde]
-impl SegmentType for ChordPart {}
+impl CompositionElement for ChordPart {}
 
 impl ChordPart {
     pub fn renderer() -> impl Renderer<Item = Self> {
@@ -463,13 +460,13 @@ impl PlayChord {
 }
 
 #[typetag::serde]
-impl SegmentType for PlayChord {}
+impl CompositionElement for PlayChord {}
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Harmony;
 
 #[typetag::serde]
-impl SegmentType for Harmony {}
+impl CompositionElement for Harmony {}
 
 impl Harmony {
     pub fn renderer() -> impl Renderer<Item = Self> {
@@ -525,7 +522,7 @@ struct MelodyPart {
 }
 
 #[typetag::serde]
-impl SegmentType for MelodyPart {}
+impl CompositionElement for MelodyPart {}
 
 impl MelodyPart {
     pub fn renderer() -> impl Renderer<Item = Self> {
@@ -611,7 +608,7 @@ impl MelodyPart {
 struct MelodyFragment;
 
 #[typetag::serde]
-impl SegmentType for MelodyFragment {}
+impl CompositionElement for MelodyFragment {}
 
 impl MelodyFragment {
     pub fn renderer() -> impl Renderer<Item = Self> {
@@ -652,7 +649,7 @@ impl MelodyFragment {
 struct MelodyNote;
 
 #[typetag::serde]
-impl SegmentType for MelodyNote {}
+impl CompositionElement for MelodyNote {}
 
 impl MelodyNote {
     pub fn renderer() -> impl Renderer<Item = Self> {
@@ -748,7 +745,8 @@ impl MelodyNote {
                             bumps -= 3
                         }
                         if its_a_chord_note {
-                            let note_impact = ((time_range.end - time_range.start) / (ts.half_beat()) - 1).pow(2);
+                            let note_impact =
+                                ((time_range.end - time_range.start) / (ts.half_beat()) - 1).pow(2);
                             if opt_other_note.is_none() {
                                 bumps += note_impact;
                             } else {
@@ -839,7 +837,7 @@ impl MelodyNote {
 struct DrumPart;
 
 #[typetag::serde]
-impl SegmentType for DrumPart {}
+impl CompositionElement for DrumPart {}
 
 impl DrumPart {
     pub fn renderer() -> impl Renderer<Item = Self> {
