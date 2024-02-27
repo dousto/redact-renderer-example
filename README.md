@@ -18,3 +18,9 @@ Here are 10 random output samples (not cherry picked). These may change from tim
 * [random9.mp3](https://dousto.github.io/redact-renderer-example/random-not-cherry-picked/random9.mp3)
 
 Their json and midi formats can also be seen in the [example outputs branch](https://github.com/dousto/redact-renderer-example/tree/example-outputs/random-not-cherry-picked).
+
+### Strucure
+
+The following graph depicts the various composition elements with arrows indicating the other element types they produce when rendered. Opening it will allow navigating the embedded code links where clicking the rectangles show the `Element` definitions, and clicking the arrows show the relevant portions of their `Renderer`s which produce the target `Element`s.
+
+![redact-composer-example excalidraw](https://github.com/dousto/redact-renderer-example/assets/5882189/0bb1815f-129a-44f7-821d-b8c2ebaaec4d)
