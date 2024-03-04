@@ -4,7 +4,7 @@ with multiple parts/instruments, including percussion.**
 Here are 10 random output samples (not cherry picked). These may change from time to time as updates are made:
 
 > [!WARNING]
-> Depending on your browser they may begin playing automatically.
+> Depending on your browser they may begin playing automatically when opened.
 
 * [random0.mp3](https://dousto.github.io/redact-renderer-example/random-not-cherry-picked/random0.mp3) [🔍](https://dousto.github.io/redact-composer-inspector/inspect?composition=url/https%3A%2F%2Fraw.githubusercontent.com%2Fdousto%2Fredact-renderer-example%2Fc745af1b3b5e96522d3fdd186a54c8e8e8f09eb7%2Frandom-not-cherry-picked%2Frandom0.json)
 * [random1.mp3](https://dousto.github.io/redact-renderer-example/random-not-cherry-picked/random1.mp3) [🔍](https://dousto.github.io/redact-composer-inspector/inspect?composition=url/https%3A%2F%2Fraw.githubusercontent.com%2Fdousto%2Fredact-renderer-example%2Fc745af1b3b5e96522d3fdd186a54c8e8e8f09eb7%2Frandom-not-cherry-picked%2Frandom1.json)
