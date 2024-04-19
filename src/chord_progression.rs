@@ -31,12 +31,12 @@ impl RandomChordProgression {
             let mut rng = context.rng();
             let ts = context
                 .find::<TimeSignature>()
-                .with_timing(During, &segment)
+                .with_timing(During, segment)
                 .require()?
                 .element;
             let key = context
                 .find::<Key>()
-                .with_timing(During, &segment)
+                .with_timing(During, segment)
                 .require()?
                 .element;
 
@@ -202,7 +202,7 @@ impl ChordMarkers {
         AdhocRenderer::<Self>::new(|segment, context| {
             let chord_progression = context
                 .find::<ChordProgression>()
-                .with_timing(During, &segment)
+                .with_timing(During, segment)
                 .require()?
                 .element;
 

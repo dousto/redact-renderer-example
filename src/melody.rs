@@ -141,14 +141,14 @@ impl MelodyLine {
             let ts = {
                 if let Ok(ts) = ctx
                     .find::<TimeSignature>()
-                    .with_timing(During, &melody_line)
+                    .with_timing(During, melody_line)
                     .within_ancestor::<Melody>()
                     .require()
                 {
                     ts.element
                 } else {
                     ctx.find::<TimeSignature>()
-                        .with_timing(During, &melody_line)
+                        .with_timing(During, melody_line)
                         .require()?
                         .element
                 }
@@ -156,26 +156,26 @@ impl MelodyLine {
             let key = {
                 if let Ok(key) = ctx
                     .find::<Key>()
-                    .with_timing(During, &melody_line)
+                    .with_timing(During, melody_line)
                     .within_ancestor::<Melody>()
                     .require()
                 {
                     key.element
                 } else {
                     ctx.find::<Key>()
-                        .with_timing(During, &melody_line)
+                        .with_timing(During, melody_line)
                         .require()?
                         .element
                 }
             };
             let dividers = ctx
                 .find::<PhraseDivider>()
-                .with_timing(Overlapping, &melody_line)
+                .with_timing(Overlapping, melody_line)
                 .get_all();
             let directives = ctx
                 .find::<MelodyDirective>()
                 .within_ancestor::<Melody>()
-                .with_timing(Overlapping, &melody_line)
+                .with_timing(Overlapping, melody_line)
                 .require_all()?;
 
             let mut divisions = [
@@ -202,7 +202,7 @@ impl MelodyLine {
             let rhythm = if let Some(dividers) = dividers {
                 dividers.into_iter().fold(Rhythm::new(), |acc, div| {
                     acc + Rhythm::random_with_subdivisions_weights(
-                        div.timing.end - div.timing.start,
+                        div.timing.len(),
                         &allowed_divisions,
                         &mut rhythm_rng,
                     )

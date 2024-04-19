@@ -30,7 +30,7 @@ impl Sections {
             let mut rng = context.rng();
             let ts = context
                 .find::<TimeSignature>()
-                .with_timing(During, &sections)
+                .with_timing(During, sections)
                 .require()?
                 .element;
 
@@ -71,20 +71,22 @@ impl Section {
             let mut rng = ctx.rng();
             let instrumentation = ctx
                 .find::<Instrumentation>()
-                .with_timing(During, &section)
+                .with_timing(During, section)
                 .require()?
                 .element;
             let ts = ctx
                 .find::<TimeSignature>()
-                .with_timing(During, &section)
+                .with_timing(During, section)
                 .require()?
                 .element;
 
+            // Generate a high level rhythm shared by all parts. Parts may subdivide their rhythms
+            // further, but should not hold notes over these PhraseDivider boundaries.
             let dividers = {
                 let rhythm = Rhythm::random_with_subdivisions_weights(
-                    2 * ts.bar(),
+                    rng.gen_range(1..=4) * ts.bar() / 2,
                     &(1..=ts.beats_per_bar)
-                        .map(|n| (vec![ts.half_beat() * n], 1))
+                        .map(|n| (vec![ts.half_beat() * n], n))
                         .collect::<Vec<_>>(),
                     &mut ctx.rng_with_seed("dividers"),
                 );
@@ -177,5 +179,7 @@ impl Section {
     }
 }
 
+/// PhraseDividers represent the subdivisions of a high level rhythm shared by all parts. Parts may
+/// subdivide their rhythms further, but should not hold notes over PhraseDivider boundaries.
 #[derive(Element, Serialize, Deserialize, Debug, Copy, Clone)]
 pub struct PhraseDivider;

@@ -53,23 +53,17 @@ impl BassPart {
                 let mut rng = ctx.rng();
                 let key = ctx
                     .find::<Key>()
-                    .with_timing(During, &bass_part)
+                    .with_timing(During, bass_part)
                     .require()?
                     .element;
                 let dividers = ctx
                     .find::<PhraseDivider>()
-                    .with_timing(
-                        Within,
-                        &bass_part.timing.start_shifted_by(-ctx.beat_length()),
-                    )
+                    .with_timing(Within, bass_part)
                     .require_all()?;
                 let chords = ctx
                     .find::<Chord>()
                     .within::<ChordMarkers>()
-                    .with_timing(
-                        Overlapping,
-                        &bass_part.timing.start_shifted_by(-1).end_shifted_by(-1),
-                    )
+                    .with_timing(Overlapping, bass_part)
                     .require_all()?;
 
                 let directives = chords
@@ -135,23 +129,20 @@ impl MelodyPart {
                 let mut rng = ctx.rng();
                 let ts = ctx
                     .find::<TimeSignature>()
-                    .with_timing(During, &melody_part)
+                    .with_timing(During, melody_part)
                     .require()?
                     .element;
                 let chords = ctx
                     .find::<Chord>()
-                    .with_timing(
-                        Overlapping,
-                        &melody_part.timing.start_shifted_by(-1).end_shifted_by(1),
-                    )
+                    .with_timing(Overlapping, melody_part)
                     .require_all()?;
                 let dividers = ctx
                     .find::<PhraseDivider>()
-                    .with_timing(Overlapping, &melody_part)
+                    .with_timing(Overlapping, melody_part)
                     .require_all()?;
                 let section = ctx
                     .find::<Section>()
-                    .with_timing(During, &melody_part)
+                    .with_timing(During, melody_part)
                     .require()?;
 
                 let period = melody_part.timing.len() / rng.gen_range(1..=8);
@@ -222,12 +213,12 @@ impl DrumPart {
                 let mut rng = context.rng();
                 let ts = context
                     .find::<TimeSignature>()
-                    .with_timing(During, &drum_part)
+                    .with_timing(During, drum_part)
                     .require()?
                     .element;
                 let dividers = context
                     .find::<PhraseDivider>()
-                    .with_timing(BeginningWithin, &drum_part)
+                    .with_timing(BeginningWithin, drum_part)
                     .require_all()?;
 
                 let mut phrase_lengths = dividers
