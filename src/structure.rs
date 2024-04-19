@@ -1,5 +1,6 @@
 use crate::chord_progression::{ChordMarkers, RandomChordProgression};
 use crate::parts::{BassPart, DrumPart, MelodyPart};
+use crate::util::generate_sawtooth_fn;
 use crate::Instrumentation;
 use rand::prelude::IteratorRandom;
 use rand::Rng;
@@ -9,7 +10,7 @@ use redact_composer::musical::rhythm::Rhythm;
 use redact_composer::render::context::TimingRelation::During;
 use redact_composer::render::{AdhocRenderer, RenderEngine};
 use redact_composer::timing::TimingSequenceUtil;
-use redact_composer::util::{IntoCompositionSegment, RangeOps};
+use redact_composer::util::{IntoSegment, RangeOps};
 use redact_composer::SegmentRef;
 use redact_composer::{Element, Renderer};
 use serde::{Deserialize, Serialize};
@@ -25,19 +26,19 @@ pub struct Sections;
 
 impl Sections {
     fn renderer() -> impl Renderer<Element = Self> {
-        AdhocRenderer::<Self>::new(|segment, context| {
+        AdhocRenderer::<Self>::new(|sections, context| {
             let mut rng = context.rng();
             let ts = context
                 .find::<TimeSignature>()
-                .with_timing(During, segment.timing)
+                .with_timing(During, &sections)
                 .require()?
                 .element;
 
             let min_section_length = ts.bars(8);
             let trimmed_len =
-                segment.timing.len() - segment.timing.len() % (min_section_length * 2);
+                sections.timing.len() - sections.timing.len() % (min_section_length * 2);
             if trimmed_len <= min_section_length {
-                Ok(vec![Section.into_segment(segment.timing)])
+                Ok(vec![Section.over(sections)])
             } else {
                 let num_splits = (2..=6)
                     .filter(|divisor| trimmed_len % (divisor * min_section_length) == 0)
@@ -48,12 +49,11 @@ impl Sections {
                     Ok(Vec::new())
                 } else {
                     Ok(Rhythm::from([trimmed_len / num_splits])
-                        .iter_over(segment.timing) // Check this
+                        .iter_over(sections)
                         .map(|div| {
-                            Sections.into_named_segment(
-                                rng.gen_range(0..num_splits).to_string(),
-                                div.timing(),
-                            )
+                            Sections
+                                .over(div)
+                                .named(rng.gen_range(0..num_splits).to_string())
                         })
                         .collect::<Vec<_>>())
                 }
@@ -67,31 +67,31 @@ pub struct Section;
 
 impl Section {
     fn renderer() -> impl Renderer<Element = Section> {
-        AdhocRenderer::<Self>::new(|segment, ctx| {
+        AdhocRenderer::<Self>::new(|section, ctx| {
             let mut rng = ctx.rng();
             let instrumentation = ctx
                 .find::<Instrumentation>()
-                .with_timing(During, segment.timing)
+                .with_timing(During, &section)
                 .require()?
                 .element;
             let ts = ctx
                 .find::<TimeSignature>()
-                .with_timing(During, segment.timing)
+                .with_timing(During, &section)
                 .require()?
                 .element;
 
             let dividers = {
                 let rhythm = Rhythm::random_with_subdivisions_weights(
-                    ts.bar(),
+                    2 * ts.bar(),
                     &(1..=ts.beats_per_bar)
-                        .map(|n| (vec![ts.half_beat() * n], n))
+                        .map(|n| (vec![ts.half_beat() * n], 1))
                         .collect::<Vec<_>>(),
                     &mut ctx.rng_with_seed("dividers"),
                 );
 
                 rhythm
-                    .iter_over(segment.timing)
-                    .map(|div| PhraseDivider.into_segment(div.timing()))
+                    .iter_over(section)
+                    .map(|div| PhraseDivider.over(div))
                     .collect::<Vec<_>>()
             };
             let typed_dividers = dividers
@@ -99,29 +99,29 @@ impl Section {
                 .flat_map(|div| div.try_into().ok())
                 .collect::<Vec<SegmentRef<PhraseDivider>>>();
 
-            let bass_parts = segment
+            let bass_parts = section
                 .timing
-                .divide_into(segment.timing.len() / 4)
+                .divide_into(section.timing.len() / 4)
                 .into_iter()
-                .map(|r| {
+                .map(|divided_timing| {
                     Part::instrument(BassPart::new(instrumentation.bass))
-                        .into_named_segment("Bass".to_string(), r)
+                        .over(divided_timing)
+                        .named("Bass".to_string())
                 });
 
-            let drum_parts = segment
+            let drum_parts = section
                 .timing
-                .divide_into(segment.timing.len() / 4)
+                .divide_into(section.timing.len() / 4)
                 .into_iter()
-                .map(|r| {
+                .map(|divided_timing| {
                     Part::percussion(DrumPart::new(instrumentation.drums))
-                        .into_named_segment("Drums".to_string(), r)
+                        .over(divided_timing)
+                        .named("Drums".to_string())
                 });
 
-            let period = segment.timing.len() as f32 / 4.0;
+            let period = section.timing.len() as f32 / 4.0;
             let offset = rng.gen_range(0.0..period);
-
-            let sawtooth =
-                |t: f32| (t + offset) / period - (0.5 + (t + offset) / period).floor() + 0.5;
+            let sawtooth = generate_sawtooth_fn(period, offset);
 
             let melody_parts3 = once(&instrumentation.melody)
                 .chain(instrumentation.extras.iter())
@@ -132,7 +132,7 @@ impl Section {
                     } else if idx == 1 {
                         0.6..0.8
                     } else {
-                        0.8..1.0
+                        0.7..1.0
                     };
 
                     let play_times = typed_dividers
@@ -151,19 +151,21 @@ impl Section {
 
                     play_times
                         .into_iter()
-                        .map(|t| {
-                            Part::instrument(MelodyPart::new(*inst)).into_named_segment(
-                                ((idx as f32 * sawtooth(t.start as f32)) as i32).to_string(),
-                                t,
-                            )
+                        .map(|play_timing| {
+                            Part::instrument(MelodyPart::new(*inst))
+                                .over(play_timing)
+                                .named(
+                                    ((idx as f32 * sawtooth(play_timing.start as f32)) as i32)
+                                        .to_string(),
+                                )
                         })
                         .collect::<Vec<_>>()
                 })
                 .collect::<Vec<_>>();
 
             Ok(vec![
-                ChordMarkers.into_segment(segment.timing),
-                RandomChordProgression.into_segment(segment.timing),
+                ChordMarkers.over(section),
+                RandomChordProgression.over(section),
             ]
             .into_iter()
             .chain(dividers)

@@ -1,9 +1,10 @@
 use crate::chord_progression::ChordMarkers;
 use crate::melody;
 use crate::melody::Melody;
-use crate::structure::PhraseDivider;
+use crate::structure::{PhraseDivider, Section};
+use crate::util::{generate_sawtooth_fn, merge_sawtooth_fns};
 use rand::distributions::{Distribution, WeightedIndex};
-use rand::prelude::SliceRandom;
+use rand::prelude::{IteratorRandom, SliceRandom};
 use rand::Rng;
 use redact_composer::midi::elements::DrumKit;
 use redact_composer::midi::gm::{
@@ -12,12 +13,12 @@ use redact_composer::midi::gm::{
 };
 use redact_composer::musical::elements::{Chord, Key, TimeSignature};
 use redact_composer::musical::rhythm::Rhythm;
-use redact_composer::musical::Notes;
+use redact_composer::musical::{Interval, NoteIterator};
 use redact_composer::render::context::TimingRelation::{
     BeginningWithin, During, Overlapping, Within,
 };
 use redact_composer::render::{AdhocRenderer, RenderEngine, RendererGroup};
-use redact_composer::util::IntoCompositionSegment;
+use redact_composer::util::IntoSegment;
 use redact_composer::{Element, Renderer};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -28,7 +29,6 @@ pub fn renderers() -> RenderEngine {
         + melody::renderers()
         + BassPart::renderer()
         + MelodyPart::renderer()
-        + MelodyLine::renderer()
         + DrumPart::renderer()
 }
 
@@ -46,38 +46,48 @@ impl BassPart {
 
     fn renderer() -> impl Renderer<Element = Self> {
         RendererGroup::new()
-            + AdhocRenderer::<Self>::new(|segment, _| {
-                Ok(vec![segment
-                    .element
-                    .instrument
-                    .into_segment(segment.timing)])
+            + AdhocRenderer::<Self>::new(|bass_part, _| {
+                Ok(vec![bass_part.element.instrument.over(bass_part)])
             })
-            + AdhocRenderer::<Self>::new(|segment, ctx| {
+            + AdhocRenderer::<Self>::new(|bass_part, ctx| {
                 let mut rng = ctx.rng();
                 let key = ctx
                     .find::<Key>()
-                    .with_timing(During, segment.timing)
+                    .with_timing(During, &bass_part)
                     .require()?
                     .element;
                 let dividers = ctx
                     .find::<PhraseDivider>()
-                    .with_timing(Within, segment.timing)
+                    .with_timing(
+                        Within,
+                        &bass_part.timing.start_shifted_by(-ctx.beat_length()),
+                    )
                     .require_all()?;
                 let chords = ctx
                     .find::<Chord>()
                     .within::<ChordMarkers>()
-                    .with_timing(Overlapping, &(segment.timing.start..=segment.timing.end))
+                    .with_timing(
+                        Overlapping,
+                        &bass_part.timing.start_shifted_by(-1).end_shifted_by(-1),
+                    )
                     .require_all()?;
 
                 let directives = chords
                     .iter()
                     .flat_map(|ch| {
-                        let chord_root = *Notes::from(once(key.note(ch.element.root())))
-                            .in_range((key.tonic + 2 * 12 + 6)..=(key.tonic + 4 * 12))
+                        let note_range =
+                            key.root().in_octave(2)..(key.root().in_octave(3) + Interval(8));
+                        let run_to_note = [Interval::P1, Interval::P4, Interval::P5]
+                            .into_iter()
+                            .map(|i| ch.element.root() + i)
+                            .filter(|pc| key.contains(pc))
+                            .flat_map(|pc| pc.iter_notes_in_range(note_range.clone()))
                             .choose(&mut rng)
                             .unwrap();
-                        let chord_fifth = *Notes::from(once(key.note(ch.element.fifth())))
-                            .in_range((key.tonic + 2 * 12 + 6)..=(key.tonic + 4 * 12))
+                        let key_note = *ch
+                            .element
+                            .root()
+                            .notes_in_range(note_range.clone())
                             .choose(&mut rng)
                             .unwrap();
                         let preceding_div = dividers
@@ -87,18 +97,11 @@ impl BassPart {
                             .iter()
                             .find(|div| div.timing.contains(&ch.timing.start));
 
-                        let run_to_directive = preceding_div.map(|preceding_div| {
-                            Melody::run_to(if rng.gen_bool(0.5) {
-                                chord_root
-                            } else {
-                                chord_fifth
-                            })
-                            .into_segment(preceding_div.timing)
-                        });
+                        let run_to_directive = preceding_div
+                            .map(|preceding_div| Melody::run_to(run_to_note).over(preceding_div));
 
-                        let key_note_directive = current_div.map(|current_div| {
-                            Melody::key_note(chord_root).into_segment(current_div.timing)
-                        });
+                        let key_note_directive = current_div
+                            .map(|current_div| Melody::key_note(key_note).over(current_div));
 
                         once(run_to_directive)
                             .chain(once(key_note_directive))
@@ -112,68 +115,6 @@ impl BassPart {
     }
 }
 
-#[non_exhaustive]
-#[derive(Element, Serialize, Deserialize, Debug)]
-pub struct MelodyLine;
-
-impl MelodyLine {
-    #[allow(clippy::new_ret_no_self)]
-    pub fn new() -> impl Element {
-        Melody::new(MelodyLine)
-    }
-
-    pub fn renderer() -> impl Renderer<Element = Self> {
-        AdhocRenderer::<Self>::new(|segment, ctx| {
-            let mut rng = ctx.rng();
-            let key = ctx
-                .find::<Key>()
-                .with_timing(During, segment.timing)
-                .require()?
-                .element;
-            let ts = ctx
-                .find::<TimeSignature>()
-                .with_timing(During, segment.timing)
-                .require()?
-                .element;
-            let chords = ctx
-                .find::<Chord>()
-                .with_timing(Overlapping, &(segment.timing.start..=segment.timing.end))
-                .require_all()?;
-            let dividers = ctx
-                .find::<PhraseDivider>()
-                .with_timing(Overlapping, segment.timing)
-                .require_all()?;
-
-            let run_to_notes = dividers
-                .iter()
-                .flat_map(|div| {
-                    chords
-                        .iter()
-                        .find(|ch| ch.timing.contains(&div.timing.end))
-                        .map(|ch| {
-                            let run_to_note = *Notes::from(key.chord(ch.element))
-                                .in_range((key.tonic + (12 * 4))..=(key.tonic + (12 * 6) + 6))
-                                .choose(&mut rng)
-                                .unwrap();
-
-                            [
-                                Melody::run_to(run_to_note).into_segment(
-                                    (div.timing.start + ts.half_beat())..div.timing.end,
-                                ),
-                                Melody::key_note(run_to_note).into_segment(
-                                    div.timing.end..(div.timing.end + ts.half_beat()),
-                                ),
-                            ]
-                        })
-                })
-                .flatten()
-                .collect::<Vec<_>>();
-
-            Ok(run_to_notes.into_iter().collect::<Vec<_>>())
-        })
-    }
-}
-
 #[derive(Element, Serialize, Deserialize, Debug)]
 pub struct MelodyPart {
     instrument: Instrument,
@@ -182,19 +123,82 @@ pub struct MelodyPart {
 impl MelodyPart {
     #[allow(clippy::new_ret_no_self)]
     pub fn new(instrument: Instrument) -> impl Element {
-        MelodyPart { instrument }
+        Melody::new(MelodyPart { instrument })
     }
 
     pub fn renderer() -> impl Renderer<Element = Self> {
         RendererGroup::new()
-            + AdhocRenderer::<Self>::new(|segment, _| {
-                Ok(vec![segment
-                    .element
-                    .instrument
-                    .into_segment(segment.timing)])
+            + AdhocRenderer::<Self>::new(|melody_part, _| {
+                Ok(vec![melody_part.element.instrument.over(melody_part)])
             })
-            + AdhocRenderer::<Self>::new(|segment, _| {
-                Ok(vec![MelodyLine::new().into_segment(segment.timing)])
+            + AdhocRenderer::<Self>::new(|melody_part, ctx| {
+                let mut rng = ctx.rng();
+                let ts = ctx
+                    .find::<TimeSignature>()
+                    .with_timing(During, &melody_part)
+                    .require()?
+                    .element;
+                let chords = ctx
+                    .find::<Chord>()
+                    .with_timing(
+                        Overlapping,
+                        &melody_part.timing.start_shifted_by(-1).end_shifted_by(1),
+                    )
+                    .require_all()?;
+                let dividers = ctx
+                    .find::<PhraseDivider>()
+                    .with_timing(Overlapping, &melody_part)
+                    .require_all()?;
+                let section = ctx
+                    .find::<Section>()
+                    .with_timing(During, &melody_part)
+                    .require()?;
+
+                let period = melody_part.timing.len() / rng.gen_range(1..=8);
+                let offset = rng.gen_range(0..period);
+                let msawtooth = generate_sawtooth_fn(period as f32, offset as f32);
+                let period = section.timing.len() / rng.gen_range(1..=8);
+                let offset = rng.gen_range(0..period);
+                let ssawtooth = generate_sawtooth_fn(period as f32, offset as f32);
+                let combsaw = merge_sawtooth_fns(msawtooth, ssawtooth, 1.0);
+
+                let chord_run_notes = chords
+                    .iter()
+                    .flat_map(|chord| {
+                        dividers
+                            .iter()
+                            .filter(|div| div.timing.ends_within(chord))
+                            .flat_map(|div| {
+                                let sstart =
+                                    combsaw((div.timing.start - melody_part.timing.start) as f32);
+                                let send =
+                                    combsaw((div.timing.end - melody_part.timing.start) as f32);
+                                let note_choices = chord.element.notes_in_range(
+                                    chord.element.root().in_octave(3)
+                                        ..=chord.element.root().in_octave(5),
+                                );
+                                let start_note =
+                                    note_choices[(sstart * note_choices.len() as f32) as usize];
+                                let end_note =
+                                    note_choices[(send * note_choices.len() as f32) as usize];
+
+                                [
+                                    Melody::key_note(start_note).over(
+                                        div.timing.start.max(chord.timing.start)
+                                            ..(div.timing.start.max(chord.timing.start)
+                                                + ts.half_beat()),
+                                    ),
+                                    Melody::run_to(end_note).over(
+                                        (div.timing.start.max(chord.timing.start) + ts.half_beat())
+                                            ..div.timing.end,
+                                    ),
+                                ]
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                    .collect::<Vec<_>>();
+
+                Ok(chord_run_notes.into_iter().collect::<Vec<_>>())
             })
     }
 }
@@ -211,24 +215,24 @@ impl DrumPart {
 
     pub fn renderer() -> impl Renderer<Element = Self> {
         RendererGroup::new()
-            + AdhocRenderer::<Self>::new(|segment, _| {
-                Ok(vec![segment.element.kit.into_segment(segment.timing)])
+            + AdhocRenderer::<Self>::new(|drum_part, _| {
+                Ok(vec![drum_part.element.kit.over(drum_part)])
             })
-            + AdhocRenderer::<Self>::new(|segment, context| {
+            + AdhocRenderer::<Self>::new(|drum_part, context| {
                 let mut rng = context.rng();
                 let ts = context
                     .find::<TimeSignature>()
-                    .with_timing(During, segment.timing)
+                    .with_timing(During, &drum_part)
                     .require()?
                     .element;
                 let dividers = context
                     .find::<PhraseDivider>()
-                    .with_timing(BeginningWithin, segment.timing)
+                    .with_timing(BeginningWithin, &drum_part)
                     .require_all()?;
 
                 let mut phrase_lengths = dividers
                     .iter()
-                    .map(|div| div.timing.end - div.timing.start)
+                    .map(|div| div.timing.len())
                     .collect::<Vec<_>>();
                 phrase_lengths.sort();
                 phrase_lengths.dedup();
@@ -273,14 +277,12 @@ impl DrumPart {
                     .iter()
                     .enumerate()
                     .flat_map(|(idx, div)| {
-                        if let Some((rhythm, hits)) =
-                            drum_beats.get(&(div.timing.end - div.timing.start))
-                        {
+                        if let Some((rhythm, hits)) = drum_beats.get(&div.timing.len()) {
                             let mut alt_hit_rng = context.rng_with_seed(idx);
                             let mut modified_rhythm = rhythm.clone();
                             let mut modified_hits = hits.clone();
                             let forced_hit =
-                                if (div.timing.start - segment.timing.start) % ts.bar() == 0 {
+                                if (div.timing.start - drum_part.timing.start) % ts.bar() == 0 {
                                     DrumHitType::AcousticBassDrum
                                 } else {
                                     [DrumHitType::AcousticSnare, DrumHitType::AcousticBassDrum]
@@ -292,7 +294,7 @@ impl DrumPart {
                             };
 
                             modified_rhythm
-                                .iter_over(div.timing)
+                                .iter_over(div)
                                 .filter(|div| !div.is_rest)
                                 .zip(modified_hits.iter().cycle())
                                 .map(|(div, drum_hit)| {
@@ -300,7 +302,7 @@ impl DrumPart {
                                         hit: *drum_hit,
                                         velocity: rng.gen_range(90..110),
                                     }
-                                    .into_segment(div.timing())
+                                    .over(div)
                                 })
                                 .collect()
                         } else {

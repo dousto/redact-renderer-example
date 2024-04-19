@@ -4,7 +4,7 @@ use redact_composer::midi::elements::DrumKit;
 use redact_composer::midi::gm::elements::Instrument;
 use redact_composer::midi::gm::Instruments;
 use redact_composer::render::{AdhocRenderer, RenderEngine};
-use redact_composer::util::IntoCompositionSegment;
+use redact_composer::util::IntoSegment;
 use redact_composer::{Element, Renderer};
 use serde::{Deserialize, Serialize};
 
@@ -92,7 +92,7 @@ impl RandomInstrumentation {
                 melody,
                 extras,
             }
-            .into_segment(segment.timing)])
+            .over(segment)])
         })
     }
 }
