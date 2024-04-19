@@ -13,7 +13,7 @@ use crate::structure::Sections;
 use crate::util::{RandomKey, RandomTempo, RandomTimeSignature};
 use redact_composer::midi::convert::MidiConverter;
 use redact_composer::render::{AdhocRenderer, RenderEngine};
-use redact_composer::util::IntoCompositionSegment;
+use redact_composer::util::IntoSegment;
 use redact_composer::{Composer, Element, Renderer};
 
 fn main() {
@@ -22,7 +22,7 @@ fn main() {
     let composer = Composer::from(Renderers::standard());
 
     let composition_length = composer.options.ticks_per_beat * 6 * 8 * 8;
-    let composition = composer.compose(Composition.into_segment(0..composition_length));
+    let composition = composer.compose(Composition.over(0..composition_length));
 
     fs::create_dir_all("./test-midi")
         .and_then(|_| MidiConverter::convert(&composition).save("./test-midi/output.mid"))
@@ -47,19 +47,6 @@ pub struct Composition;
 struct Renderers;
 
 impl Renderers {
-    fn composition_renderer() -> impl Renderer<Element = Composition> {
-        AdhocRenderer::<Composition>::new(|segment, _| {
-            Ok(vec![
-                RandomKey.into_segment(segment.timing),
-                RandomTimeSignature.into_segment(segment.timing),
-                RandomTempo.into_segment(segment.timing),
-                RandomInstrumentation.into_segment(segment.timing),
-                Sections.into_segment(segment.timing),
-                // Metronome::new().into_segment(timing)
-            ])
-        })
-    }
-
     fn standard() -> RenderEngine {
         redact_composer::renderers()
             + Self::composition_renderer()
@@ -68,5 +55,17 @@ impl Renderers {
             + orchestration::renderers()
             + parts::renderers()
             + util::renderers()
+    }
+
+    fn composition_renderer() -> impl Renderer<Element = Composition> {
+        AdhocRenderer::<Composition>::new(|composition, _| {
+            Ok(vec![
+                RandomKey.over(composition),
+                RandomTimeSignature.over(composition),
+                RandomTempo.over(composition),
+                RandomInstrumentation.over(composition),
+                Sections.over(composition),
+            ])
+        })
     }
 }

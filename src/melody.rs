@@ -1,15 +1,15 @@
 use crate::melody::MelodyDirectiveOutput::{NoteChoice, NoteMask};
 use crate::structure::PhraseDivider;
 use rand::distributions::WeightedIndex;
+use rand::prelude::SliceRandom;
 use rand::Rng;
-use redact_composer::elements::PlayNote;
 use redact_composer::musical::elements::{Key, TimeSignature};
 use redact_composer::musical::rhythm::{Rhythm, Subdivision};
-use redact_composer::musical::Notes;
+use redact_composer::musical::{Interval, Note, NoteIterator};
 use redact_composer::render::context::TimingRelation::{During, Overlapping};
 use redact_composer::render::{AdhocRenderer, RenderEngine};
 use redact_composer::timing::Timing;
-use redact_composer::util::{HashMap, IntoCompositionSegment};
+use redact_composer::util::{HashMap, IntoSegment};
 use redact_composer::{Element, Renderer};
 use serde::{Deserialize, Serialize};
 use std::ops::{AddAssign, MulAssign, Range};
@@ -33,68 +33,50 @@ impl Melody {
         }
     }
 
-    pub fn run_to(note: u8) -> MelodyDirective {
-        MelodyDirective {
-            directive_type: MelodyDirectiveType::RunTo(note),
-        }
+    pub fn run_to(note: Note) -> MelodyDirective {
+        MelodyDirective::RunTo(note)
     }
 
-    pub fn key_note(note: u8) -> MelodyDirective {
-        MelodyDirective {
-            directive_type: MelodyDirectiveType::KeyNote(note),
-        }
+    pub fn key_note(note: Note) -> MelodyDirective {
+        MelodyDirective::KeyNote(note)
     }
 }
 
 impl Melody {
     pub fn renderer() -> impl Renderer<Element = Self> {
-        AdhocRenderer::<Self>::new(|segment, _| Ok(vec![MelodyLine.into_segment(segment.timing)]))
+        AdhocRenderer::<Self>::new(|segment, _| Ok(vec![MelodyLine.over(segment)]))
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub enum MelodyDirectiveType {
-    RunTo(u8),
-    KeyNote(u8),
-}
-
-#[derive(Element, Serialize, Deserialize, Debug)]
-pub struct MelodyDirective {
-    directive_type: MelodyDirectiveType,
+#[derive(Element, Debug, Serialize, Deserialize)]
+pub enum MelodyDirective {
+    RunTo(Note),
+    KeyNote(Note),
 }
 
 impl MelodyDirective {
     pub(self) fn apply(
         &self,
         _directive_timing: &Timing,
-        prev_note: Option<&u8>,
+        prev_note: Option<&Note>,
         _time: &Range<i32>,
         key: &Key,
     ) -> MelodyDirectiveOutput {
-        match self.directive_type {
-            MelodyDirectiveType::RunTo(n) => {
+        match self {
+            MelodyDirective::RunTo(n) => {
                 let prev_note = if let Some(prev_note) = prev_note {
                     *prev_note
                 } else {
-                    n
+                    *n
                 };
 
-                if n == prev_note {
-                    return NoteChoice([(n, 1.0)].into_iter().collect::<HashMap<_, _>>());
+                if *n == prev_note {
+                    return NoteChoice([(*n, 1.0)].into_iter().collect::<HashMap<Note, f32>>());
                 }
 
-                let run_up = n > prev_note;
-                let run_range = (1..(n.abs_diff(prev_note) + 2))
-                    .filter(|diff| diff != &0)
-                    .map(|offset| {
-                        if run_up {
-                            prev_note + offset
-                        } else {
-                            prev_note - offset
-                        }
-                    })
-                    .collect::<Vec<_>>();
-                let run_notes = Notes::from(key.scale()).in_range(run_range.clone());
+                let run_range =
+                    (*n.min(&prev_note) + Interval(1))..(*n.max(&prev_note) + Interval(2));
+                let run_notes = key.notes_in_range(run_range);
 
                 let map = run_notes
                     .into_iter()
@@ -105,8 +87,8 @@ impl MelodyDirective {
 
                 NoteChoice(map)
             }
-            MelodyDirectiveType::KeyNote(n) => {
-                NoteChoice([(n, 1.0)].into_iter().collect::<HashMap<_, _>>())
+            MelodyDirective::KeyNote(n) => {
+                NoteChoice([(*n, 1.0)].into_iter().collect::<HashMap<Note, f32>>())
             }
         }
     }
@@ -117,17 +99,17 @@ enum MelodyDirectiveOutput {
     /// When two [`NoteChoice`]s are applied simultaneously, their note
     /// weights are added respective to each note.
     #[allow(dead_code)]
-    NoteChoice(HashMap<u8, f32>),
+    NoteChoice(HashMap<Note, f32>),
     /// Provides a note mask as a HashMap keyed by note number and a probability mask. Values should
     /// be between 0.0 and 1.0 (Effectively it multiplies to the note choice probabilities.)
     /// When two [`NoteMask`]s are applied simultaneously, they are also
     /// applied multiplicatively.
     #[allow(dead_code)]
-    NoteMask(HashMap<u8, f32>),
+    NoteMask(HashMap<Note, f32>),
 }
 
 impl MelodyDirectiveOutput {
-    pub fn merge_into(self, other: &mut HashMap<u8, f32>) {
+    pub fn merge_into(self, other: &mut HashMap<Note, f32>) {
         match self {
             NoteChoice(map) => {
                 map.into_iter().for_each(|(note, weight)| {
@@ -150,24 +132,23 @@ impl MelodyDirectiveOutput {
 }
 
 #[derive(Element, Serialize, Deserialize, Debug)]
-#[element(name = "melody::MelodyLine")]
 struct MelodyLine;
 
 impl MelodyLine {
     pub fn renderer() -> impl Renderer<Element = Self> {
-        AdhocRenderer::<Self>::new(|segment, ctx| {
+        AdhocRenderer::<Self>::new(|melody_line, ctx| {
             let mut rng = ctx.rng();
             let ts = {
                 if let Ok(ts) = ctx
                     .find::<TimeSignature>()
-                    .with_timing(During, segment.timing)
+                    .with_timing(During, &melody_line)
                     .within_ancestor::<Melody>()
                     .require()
                 {
                     ts.element
                 } else {
                     ctx.find::<TimeSignature>()
-                        .with_timing(During, segment.timing)
+                        .with_timing(During, &melody_line)
                         .require()?
                         .element
                 }
@@ -175,36 +156,47 @@ impl MelodyLine {
             let key = {
                 if let Ok(key) = ctx
                     .find::<Key>()
-                    .with_timing(During, segment.timing)
+                    .with_timing(During, &melody_line)
                     .within_ancestor::<Melody>()
                     .require()
                 {
                     key.element
                 } else {
                     ctx.find::<Key>()
-                        .with_timing(During, segment.timing)
+                        .with_timing(During, &melody_line)
                         .require()?
                         .element
                 }
             };
             let dividers = ctx
                 .find::<PhraseDivider>()
-                .with_timing(Overlapping, segment.timing)
+                .with_timing(Overlapping, &melody_line)
                 .get_all();
             let directives = ctx
                 .find::<MelodyDirective>()
                 .within_ancestor::<Melody>()
-                .with_timing(Overlapping, segment.timing)
+                .with_timing(Overlapping, &melody_line)
                 .require_all()?;
 
-            let allowed_divisions = [
-                (vec![ts.beats(2)], 16),
-                (vec![ts.triplet(), ts.triplet(), ts.triplet()], 8),
-                (vec![ts.beat() + ts.half_beat()], 4),
-                (vec![ts.beat()], 2),
-                (vec![ts.half_beat()], 1),
-                // (vec![ts.half_beat() / 2, ts.half_beat() / 2], 1),
+            let mut divisions = [
+                vec![ts.half_beat()],
+                vec![ts.beat()],
+                vec![ts.beat() + ts.half_beat()],
+                vec![ts.triplet(), ts.triplet(), ts.triplet()],
+                vec![
+                    ts.beats(2) * 2 / 3,
+                    ts.beats(2) * 2 / 3,
+                    ts.beats(2) * 2 / 3,
+                ],
+                vec![ts.beats(2)],
             ];
+            divisions.shuffle(&mut rng);
+
+            let allowed_divisions = divisions
+                .into_iter()
+                .enumerate()
+                .map(|(idx, divs)| (divs, 2_i32.pow(idx as u32)))
+                .collect::<Vec<_>>();
 
             let mut rhythm_rng = ctx.rng_with_seed(rng.gen::<u64>());
             let rhythm = if let Some(dividers) = dividers {
@@ -217,7 +209,7 @@ impl MelodyLine {
                 })
             } else {
                 Rhythm::random_with_subdivisions_weights(
-                    segment.timing.len(),
+                    melody_line.timing.len(),
                     &allowed_divisions,
                     &mut rng,
                 )
@@ -226,7 +218,7 @@ impl MelodyLine {
             let lead_amount = rng.gen_range(0..=2) * ts.half_beat();
 
             let mut notes = rhythm
-                .iter_over(segment.timing)
+                .iter_over(melody_line)
                 .scan(None, |prev_note, t| {
                     let note_choices = directives
                         .iter()
@@ -263,20 +255,14 @@ impl MelodyLine {
             let play_notes = notes
                 .into_iter()
                 .flat_map(|(opt_note, div)| opt_note.map(|note| (note, div)))
-                .map(|(note, div)| {
-                    PlayNote {
-                        note,
-                        velocity: rng.gen_range(80..=110),
-                    }
-                    .into_segment(div.timing())
-                })
+                .map(|(note, div)| note.play(rng.gen_range(80..=110)).over(div))
                 .collect::<Vec<_>>();
 
             Ok(play_notes)
         })
     }
 
-    fn merge_ranges(input_vec: &mut Vec<(Option<u8>, Subdivision)>, rng: &mut impl Rng) {
+    fn merge_ranges(input_vec: &mut Vec<(Option<Note>, Subdivision)>, rng: &mut impl Rng) {
         if input_vec.is_empty() {
             return;
         }
