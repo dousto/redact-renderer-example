@@ -220,7 +220,7 @@ impl MelodyLine {
             let mut notes = rhythm
                 .iter_over(melody_line)
                 .scan(None, |prev_note, t| {
-                    let note_choices = directives
+                    let mut directives = directives
                         .iter()
                         .filter(|directive| {
                             directive
@@ -228,6 +228,19 @@ impl MelodyLine {
                                 .start_shifted_by(-lead_amount)
                                 .intersects(&t.timing())
                         })
+                        .collect::<Vec<_>>();
+                    if directives
+                        .iter()
+                        .any(|dir| matches!(dir.element, MelodyDirective::KeyNote(_)))
+                    {
+                        directives = directives
+                            .into_iter()
+                            .filter(|dir| matches!(dir.element, MelodyDirective::KeyNote(_)))
+                            .collect::<Vec<_>>()
+                    }
+
+                    let note_choices = directives
+                        .into_iter()
                         .map(|d| {
                             d.element
                                 .apply(d.timing, prev_note.as_ref(), &t.timing(), key)
