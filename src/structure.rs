@@ -82,13 +82,14 @@ impl Section {
 
             // Generate a high level rhythm shared by all parts. Parts may subdivide their rhythms
             // further, but should not hold notes over these PhraseDivider boundaries.
+            let mut dividers_rng = ctx.rng_with_seed("dividers");
             let dividers = {
                 let rhythm = Rhythm::random_with_subdivisions_weights(
-                    rng.gen_range(1..=4) * ts.bar() / 2,
+                    dividers_rng.gen_range(1..=2) * ts.bar(),
                     &(1..=ts.beats_per_bar)
                         .map(|n| (vec![ts.half_beat() * n], n))
                         .collect::<Vec<_>>(),
-                    &mut ctx.rng_with_seed("dividers"),
+                    &mut dividers_rng,
                 );
 
                 rhythm
@@ -132,7 +133,7 @@ impl Section {
                     let activation: Range<f32> = if idx == 0 {
                         0.0..0.7
                     } else if idx == 1 {
-                        0.6..0.8
+                        0.5..0.9
                     } else {
                         0.7..1.0
                     };
