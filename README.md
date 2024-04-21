@@ -23,4 +23,6 @@ Their json and midi formats can also be seen in the [example outputs branch](htt
 
 The following graph depicts the various composition elements with arrows indicating the other element types they produce when rendered. Opening it will allow navigating the embedded code links where clicking the rectangles show the `Element` definitions, and clicking the arrows show the relevant portions of their `Renderer`s which produce the target `Element`s.
 
-![redact-composer-example excalidraw](https://github.com/dousto/redact-renderer-example/assets/5882189/0bb1815f-129a-44f7-821d-b8c2ebaaec4d)
+
+
+![redact-composer-example](https://github.com/dousto/redact-renderer-example/assets/5882189/242589ba-d89c-4216-98e9-93b5fb31e9ed)
