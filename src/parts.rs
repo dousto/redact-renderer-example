@@ -1,6 +1,6 @@
 use crate::chord_progression::ChordMarkers;
 use crate::melody;
-use crate::melody::Melody;
+use crate::melody::{Melody, MelodyDirective};
 use crate::structure::{PhraseDivider, Section};
 use crate::util::{generate_sawtooth_fn, merge_sawtooth_fns};
 use rand::distributions::{Distribution, WeightedIndex};
@@ -144,6 +144,13 @@ impl MelodyPart {
                     .find::<Section>()
                     .with_timing(During, melody_part)
                     .require()?;
+                let existing_key_notes = ctx
+                    .find::<MelodyDirective>()
+                    .within::<MelodyPart>()
+                    .with_timing(Within, melody_part)
+                    .matching(|dir| matches!(dir, MelodyDirective::KeyNote(_)))
+                    .get_all()
+                    .unwrap_or(vec![]);
 
                 let period = melody_part.timing.len() / rng.gen_range(1..=8);
                 let offset = rng.gen_range(0..period);
@@ -153,43 +160,56 @@ impl MelodyPart {
                 let ssawtooth = generate_sawtooth_fn(period as f32, offset as f32);
                 let combsaw = merge_sawtooth_fns(msawtooth, ssawtooth, 1.0);
 
-                let chord_run_notes = chords
+                let note_starts = dividers
                     .iter()
-                    .flat_map(|chord| {
-                        dividers
+                    .flat_map(|div| {
+                        let chord = chords
                             .iter()
-                            .filter(|div| div.timing.ends_within(chord))
-                            .flat_map(|div| {
-                                let sstart =
-                                    combsaw((div.timing.start - melody_part.timing.start) as f32);
-                                let send =
-                                    combsaw((div.timing.end - melody_part.timing.start) as f32);
-                                let note_choices = chord.element.notes_in_range(
-                                    chord.element.root().in_octave(3)
-                                        ..=chord.element.root().in_octave(5),
-                                );
-                                let start_note =
-                                    note_choices[(sstart * note_choices.len() as f32) as usize];
-                                let end_note =
-                                    note_choices[(send * note_choices.len() as f32) as usize];
+                            .find(|ch| ch.timing.contains(&div.timing.start))
+                            .map(|segment| segment.element)?;
 
-                                [
-                                    Melody::key_note(start_note).over(
-                                        div.timing.start.max(chord.timing.start)
-                                            ..(div.timing.start.max(chord.timing.start)
-                                                + ts.half_beat()),
-                                    ),
-                                    Melody::run_to(end_note).over(
-                                        (div.timing.start.max(chord.timing.start) + ts.half_beat())
-                                            ..div.timing.end,
-                                    ),
-                                ]
+                        let note_choices = chord
+                            .iter_notes_in_range(
+                                chord.root().in_octave(3)..=chord.root().in_octave(5),
+                            )
+                            .filter(|n| {
+                                // Randomly remove note choices with probability corresponding to the number
+                                // of other parts playing the same pitch
+                                let overlaps = existing_key_notes
+                                    .iter()
+                                    .filter(|dir| dir.timing.intersects(div))
+                                    .filter(|dir| match dir.element {
+                                        MelodyDirective::RunTo(_) => false,
+                                        MelodyDirective::KeyNote(kn) => {
+                                            kn.pitch_class() == n.pitch_class()
+                                        }
+                                    })
+                                    .count();
+
+                                rng.gen_bool(0.5_f64.powf(overlaps as f64))
                             })
-                            .collect::<Vec<_>>()
+                            .collect::<Vec<_>>();
+                        let start = combsaw((div.timing.start - melody_part.timing.start) as f32);
+                        let start_note = note_choices[(start * note_choices.len() as f32) as usize];
+                        Some((start_note, div.timing.start))
                     })
                     .collect::<Vec<_>>();
 
-                Ok(chord_run_notes.into_iter().collect::<Vec<_>>())
+                let key_notes = note_starts
+                    .iter()
+                    .map(|(note, time)| {
+                        Melody::key_note(*note).over(*time..(time + ts.half_beat()))
+                    })
+                    .collect::<Vec<_>>();
+                let run_to_notes = note_starts
+                    .windows(2)
+                    .map(|notes| Melody::run_to(notes[1].0).over(notes[0].1..notes[1].1))
+                    .collect::<Vec<_>>();
+
+                Ok(key_notes
+                    .into_iter()
+                    .chain(run_to_notes)
+                    .collect::<Vec<_>>())
             })
     }
 }
