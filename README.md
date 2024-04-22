@@ -19,7 +19,7 @@ Here are 10 random output samples (not cherry picked). These may change from tim
 
 Their json and midi formats can also be seen in the [example outputs branch](https://github.com/dousto/redact-renderer-example/tree/example-outputs/random-not-cherry-picked).
 
-### Strucure
+### Structure
 
 The following graph depicts the various composition elements with arrows indicating the other element types they produce when rendered. Opening it will allow navigating the embedded code links where clicking the rectangles show the `Element` definitions, and clicking the arrows show the relevant portions of their `Renderer`s which produce the target `Element`s.
 
