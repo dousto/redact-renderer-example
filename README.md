@@ -8,5 +8,5 @@ Contains an `Earthfile` used to quickly generate example outputs and convert the
 
 ### Example
 ```shell
-earthly -a +gen-example/\* --outputs=json,midi,mp3 ./example-outputs --RUST_LOG=debug
+earthly -a +gen-example/\* --outputs=json,midi,mp3 ./example-outputs/ --RUST_LOG=debug
 ```
