@@ -13,6 +13,7 @@ use crate::structure::Sections;
 use crate::util::{RandomKey, RandomTempo, RandomTimeSignature};
 use redact_composer::midi::convert::MidiConverter;
 use redact_composer::render::{AdhocRenderer, RenderEngine};
+use redact_composer::synthesis::{SF2Synthesizable, SF2Synthesizer};
 use redact_composer::util::IntoSegment;
 use redact_composer::{Composer, Element, Renderer};
 
@@ -24,21 +25,25 @@ fn main() {
     let composition_length = composer.options.ticks_per_beat * 6 * 8 * 8;
     let composition = composer.compose(Composition.over(0..composition_length));
 
-    fs::create_dir_all("./test-midi")
-        .and_then(|_| MidiConverter::convert(&composition).save("./test-midi/output.mid"))
-        .and_then(|_| {
-            fs::write(
-                "./test-midi/output.json",
-                serde_json::to_string_pretty(&composition).unwrap(),
-            )
-        })
-        .unwrap();
+    let output_dir = "./composition-outputs";
+    let midi = MidiConverter::convert(&composition);
+    fs::create_dir_all(output_dir)
+        .and_then(|_| midi.save(format!("{}/output.mid", output_dir)))
+        .expect("Error saving midi");
 
-    // Attempt a deserialization to surface element name collisions if they exist
-    serde_json::from_str::<redact_composer::Composition>(
-        serde_json::to_string_pretty(&composition).unwrap().as_str(),
-    )
-    .unwrap();
+    let json = serde_json::to_string_pretty(&composition).expect("Error serializing");
+    fs::write(format!("{}/output.json", output_dir), json).expect("Error saving json");
+
+    let sound_font_path = "./sounds/sound_font.sf2";
+    let synth = SF2Synthesizer::new(sound_font_path).unwrap_or_else(|_| {
+        panic!(
+            "SoundFont ({:?}) is not committed with this repo and should be supplied separately",
+            sound_font_path
+        )
+    });
+    midi.synthesize_with(&synth)
+        .to_file(format!("{}/output.wav", output_dir))
+        .expect("Error during synthesis");
 }
 
 #[derive(Element, Serialize, Deserialize, Copy, Clone, Debug)]

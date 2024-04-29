@@ -150,7 +150,7 @@ impl MelodyPart {
                     .with_timing(Within, melody_part)
                     .matching(|dir| matches!(dir, MelodyDirective::KeyNote(_)))
                     .get_all()
-                    .unwrap_or(vec![]);
+                    .unwrap_or_default();
 
                 let period = melody_part.timing.len() / rng.gen_range(1..=8);
                 let offset = rng.gen_range(0..period);
